@@ -1,4 +1,10 @@
-import vlc
+try:
+	import vlc
+except:
+	import os
+	os.add_dll_directory(r'C:\Program Files\VideoLAN\VLC')
+	import vlc
+
 import time
 import cv2
 import mediapipe as mp
@@ -24,15 +30,19 @@ class VirtualMusic():
 		self.min_time_let_change_mode = 5. 		# sec
 		self.min_time_let_change_music = 5.		# sec
 		self.min_time_let_change_volume = 3.	# sec
+		self.min_time_let_check_like = 5.
 		t_now = time.time()
 		self.last_change_mode = t_now
 		self.last_change_music = t_now
 		self.last_change_volume = t_now
+		self.last_check_like = t_now
 
 		self.new_mode_change = False			# begining in MC mode
 		self.hands_index_last_x = None 			# last x, used to calculate velocity
 		self.hands_index_last_y = None 			# last y, used to calculate velocity
 		self.change_music_threshold = 0.2 		# threshold for horizontal velocity of
+		self.change_mode_threshold_2hand = 1
+		self.check_like_threshold = 0.3
 		# hands
 
 		self.increase_music_volume = 0.2 		# threshold for vertical velocity of
@@ -67,10 +77,10 @@ class VirtualMusic():
 
 		# Making two hand detection models for two cameras
 		self.hands_model0 = mp.solutions.hands.Hands(static_image_mode=False,
-			min_detection_confidence=0.7,
+			min_detection_confidence=0.5,
 			min_tracking_confidence=0.5)
 		self.hands_model1 = mp.solutions.hands.Hands(static_image_mode=False,
-			min_detection_confidence=0.7,
+			min_detection_confidence=0.5,
 			min_tracking_confidence=0.5)
 
 
@@ -94,6 +104,8 @@ class VirtualMusic():
 					self.play_music()
 
 					self.change_volume()
+
+					self.check_like()
 
 				elif self.player_mode == 2:
 					self.check_section()
@@ -396,24 +408,18 @@ class VirtualMusic():
 		t_now = time.time()
 		if (t_now - self.last_change_mode) \
 		> self.min_time_let_change_mode:
-			if self.hands0["left"] is not None and \
-			self.hands0["right"] is not None:
-				if (self.hands0["left"][MAIN_POINTS[1], 0] < \
-					self.hands0["left"][MAIN_POINTS[-1], 0]) and (
-					self.hands0["right"][MAIN_POINTS[-1], 0] \
-					< self.hands0["right"][MAIN_POINTS[1], 0])and \
-					((self.hands0["left"][MAIN_POINTS[0], 1] - self.hands0[
-						"left"][MAIN_POINTS[2], 1]) >  self. \
-					change_mode_threshold) and ((self.hands0["right"][
-						MAIN_POINTS[0], 1] - self.hands0["right"][
-						MAIN_POINTS[2], 1]) > self.change_mode_threshold):
-						self.last_change_mode = t_now
-						self.new_mode_change = True
-						if self.player_mode == 1:
-							self.musics[self.music_number].stop()
-							self.player_mode = 2
-						elif (self.player_mode == 2) or self.player_mode is None:
-							self.player_mode = 1
+			if self.hands0['left'] is not None and \
+			    self.hands0['right'] is not None and \
+				self.hands0['left'][MAIN_POINTS[0], 1] - self.hands0['left'][MAIN_POINTS[3], 1] >  self.change_mode_threshold and \
+					np.abs(self.hands0['left'][MAIN_POINTS[3], 0] - self.hands0['left'][MAIN_POINTS[0], 0]) < self.change_mode_threshold / 2 and\
+					np.sum(np.abs(self.hands0['left'][MAIN_POINTS] - self.hands0['right'][MAIN_POINTS])) < self.change_mode_threshold_2hand :
+				self.last_change_mode = t_now
+				self.new_mode_change = True
+				if self.player_mode == 1:
+					self.musics[self.music_number].stop()
+					self.player_mode = 2
+				elif (self.player_mode == 2) or self.player_mode is None:
+					self.player_mode = 1
 
 	
 	def change_volume(self):
@@ -462,3 +468,20 @@ class VirtualMusic():
 						MAIN_POINTS[2], 0], "right": self.hands0["right"][
 						MAIN_POINTS[2], 0]}
 
+	
+	def check_like(self):
+		def check_like_1hand(name):
+			if self.hands0[name] is not None and \
+				self.hands0[name][MAIN_POINTS[0], 1] - self.hands0[name][MAIN_POINTS[1], 1] > self.check_like_threshold and \
+				np.abs(self.hands0[name][MAIN_POINTS[0], 1] - self.hands0[name][MAIN_POINTS[3], 1]) < self.check_like_threshold and \
+				np.sum(np.abs(self.hands0[name][MAIN_POINTS[2:], 0] - self.hands0[name][MAIN_POINTS[0], 0])) < 2 * self.check_like_threshold:
+				return True
+		
+			return False
+
+		t_now = time.time()
+		if (t_now - self.last_check_like) > self.min_time_let_check_like:
+			if check_like_1hand('left') or check_like_1hand('right'):
+				self.last_check_like = t_now
+				print(f'{self.music_number} liked')
+				
